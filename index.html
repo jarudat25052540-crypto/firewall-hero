@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firewall Hero - AR Cybersecurity Game</title>
+    <!-- MediaPipe Hands CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #050b14;
+            color: #00f0ff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 1280px;
+            height: 720px;
+            border: 2px solid #00f0ff;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        video { display: none; }
+        canvas {
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1); /* Mirror view */
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        .hud-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(5, 11, 20, 0.7);
+            padding: 15px 25px;
+            border-radius: 8px;
+            border: 1px solid #00f0ff;
+        }
+        .hp-bar-container {
+            width: 250px;
+            height: 20px;
+            background: #111;
+            border: 1px solid #ff0055;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #hp-bar {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff0055, #00f0ff);
+            transition: width 0.2s;
+        }
+        .hud-footer {
+            display: flex;
+            justify-content: space-between;
+            background: rgba(5, 11, 20, 0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #00f0ff;
+        }
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 11, 20, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 10;
+        }
+        .btn {
+            background: #00f0ff;
+            color: #050b14;
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 0 15px #00f0ff;
+            transition: 0.2s;
+        }
+        .btn:hover { background: #fff; transform: scale(1.05); }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <video id="webcam" playsinline></video>
+    <canvas id="canvas" width="1280" height="720"></canvas>
+
+    <div id="ui-overlay">
+        <div class="hud-header">
+            <div>
+                <div style="font-size: 12px; color: #aaa;">NETWORK INTEGRITY</div>
+                <div class="hp-bar-container"><div id="hp-bar"></div></div>
+            </div>
+            <div style="text-align: center;">
+                <h2 style="letter-spacing: 2px;">FIREWALL HERO</h2>
+                <div id="stage-text" style="font-size: 14px; color: #ffaa00;">STAGE 1: SCHOOL NETWORK</div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 12px; color: #aaa;">DEFENSE SCORE</div>
+                <div id="score-text" style="font-size: 28px; font-weight: bold;">0000</div>
+            </div>
+        </div>
+
+        <div class="hud-footer">
+            <div>CURRENT GESTURE: <span id="gesture-text" style="color: #00ff66; font-weight: bold;">WAITING...</span></div>
+            <div>ULTIMATE SCAN: <span id="ult-text" style="color: #ffaa00;">READY (RAISE 2 HANDS)</span></div>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h1 style="font-size: 48px; margin-bottom: 10px; text-shadow: 0 0 10px #00f0ff;">FIREWALL HERO</h1>
+        <p style="color: #aaa; margin-bottom: 20px;">AR Cybersecurity Defense Game</p>
+        <div style="text-align: left; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 8px; line-height: 1.8;">
+            ✋ <b>กางฝ่ามือ:</b> เปิดโล่ Firewall ป้องกันการโจมตี<br>
+            ✊ <b>กำมือ:</b> ยิงพลัง Cyber Shield ทำลายศัตรู<br>
+            🙌 <b>ยกสองมือขึ้น:</b> เปิดใช้งาน Ultimate Security Scan ล้างจอ
+        </div>
+        <button class="btn" onclick="startGame()">START DEFENSE</button>
+    </div>
+
+    <div id="game-over-screen" style="display: none;">
+        <h1 style="font-size: 48px; color: #ff0055; margin-bottom: 10px;">SYSTEM BREACHED!</h1>
+        <p id="final-score" style="font-size: 24px; margin-bottom: 20px;">Score: 0</p>
+        <button class="btn" onclick="restartGame()">REBOOT SYSTEM</button>
+    </div>
+</div>
+
+<script>
+// --- AUDIO SYNTHESIZER ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(freq, type, duration) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+// --- GAME VARIABLES ---
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const video = document.getElementById('webcam');
+
+let gameRunning = false;
+let score = 0;
+let hp = 100;
+let enemies = [];
+let lasers = [];
+let particles = [];
+let currentGesture = 'NONE';
+let ultCooldown = 0;
+let lastShootTime = 0;
+
+// MediaPipe Setup
+const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+});
+
+hands.onResults(onHandResults);
+
+const camera = new Camera(video, {
+    onFrame: async () => {
+        if (gameRunning) await hands.send({ image: video });
+    },
+    width: 1280,
+    height: 720
+});
+
+// --- GESTURE DETECTION ---
+let detectedHands = [];
+
+function onHandResults(results) {
+    detectedHands = [];
+    if (!results.multiHandLandmarks) return;
+
+    let handsUpCount = 0;
+
+    for (const landmarks of results.multiHandLandmarks) {
+        // Convert Landmarks
+        const wrist = landmarks[0];
+        const indexTip = landmarks[8];
+        const middleTip = landmarks[12];
+
+        // Check Open Palm vs Fist
+        const distToWrist = Math.hypot(middleTip.x - wrist.x, middleTip.y - wrist.y);
+        let gesture = distToWrist < 0.2 ? 'FIST' : 'OPEN_PALM';
+
+        if (wrist.y < 0.3) handsUpCount++;
+
+        detectedHands.push({
+            wrist: { x: (1 - wrist.x) * canvas.width, y: wrist.y * canvas.height },
+            indexTip: { x: (1 - indexTip.x) * canvas.width, y: indexTip.y * canvas.height },
+            gesture: gesture
+        });
+    }
+
+    if (handsUpCount >= 2 && ultCooldown <= 0) {
+        triggerUltimate();
+    } else if (detectedHands.length > 0) {
+        currentGesture = detectedHands[0].gesture;
+    } else {
+        currentGesture = 'NONE';
+    }
+
+    document.getElementById('gesture-text').innerText = currentGesture;
+}
+
+// --- GAME ACTIONS ---
+function triggerUltimate() {
+    ultCooldown = 300; // Cooldown frames
+    playSound(800, 'square', 0.5);
+    enemies.forEach(e => {
+        createExplosion(e.x, e.y, '#00f0ff');
+        score += e.points;
+    });
+    enemies = [];
+    document.getElementById('ult-text').innerText = 'CHARGING...';
+}
+
+function shootLaser(x, y) {
+    const now = Date.now();
+    if (now - lastShootTime > 250) { // Fire rate limit
+        lasers.push({ x: x, y: y, radius: 10, speed: 15 });
+        playSound(600, 'sawtooth', 0.1);
+        lastShootTime = now;
+    }
+}
+
+function createExplosion(x, y, color) {
+    for (let i = 0; i < 15; i++) {
+        particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 10,
+            vy: (Math.random() - 0.5) * 10,
+            life: 20,
+            color: color
+        });
+    }
+}
+
+// --- GAME LOOP ---
+function spawnEnemy() {
+    if (!gameRunning) return;
+    const types = [
+        { name: 'Virus Bug', color: '#ff0055', hp: 1, speed: 3, size: 25, points: 10 },
+        { name: 'Malware Monster', color: '#ffaa00', hp: 2, speed: 2, size: 35, points: 20 },
+        { name: 'Hacker Drone', color: '#bf00ff', hp: 1, speed: 5, size: 20, points: 30 }
+    ];
+    const type = types[Math.floor(Math.random() * types.length)];
+    enemies.push({
+        ...type,
+        x: Math.random() * (canvas.width - 100) + 50,
+        y: -30
+    });
+
+    setTimeout(spawnEnemy, Math.max(500, 2000 - score * 2));
+}
+
+function update() {
+    if (!gameRunning) return;
+
+    // Clear Canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Render Mirrored Webcam Frame
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // Dark Overlay for AR Glow Effect
+    ctx.fillStyle = 'rgba(5, 11, 20, 0.4)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Cooldown Manager
+    if (ultCooldown > 0) {
+        ultCooldown--;
+        if (ultCooldown === 0) document.getElementById('ult-text').innerText = 'READY (RAISE 2 HANDS)';
+    }
+
+    // Process Hand Interactions
+    detectedHands.forEach(hand => {
+        if (hand.gesture === 'OPEN_PALM') {
+            // Draw Firewall Shield
+            ctx.beginPath();
+            ctx.arc(hand.wrist.x, hand.wrist.y, 80, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0, 240, 255, 0.3)';
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#00f0ff';
+            ctx.stroke();
+
+            // Check Collision with Enemies (Blocking)
+            enemies.forEach((enemy, index) => {
+                const dist = Math.hypot(enemy.x - hand.wrist.x, enemy.y - hand.wrist.y);
+                if (dist < 80 + enemy.size) {
+                    createExplosion(enemy.x, enemy.y, '#00f0ff');
+                    playSound(300, 'sine', 0.1);
+                    score += 5;
+                    enemies.splice(index, 1);
+                }
+            });
+        } else if (hand.gesture === 'FIST') {
+            shootLaser(hand.indexTip.x, hand.indexTip.y);
+        }
+    });
+
+    // Update & Draw Lasers
+    lasers.forEach((laser, index) => {
+        laser.y -= laser.speed;
+        ctx.beginPath();
+        ctx.arc(laser.x, laser.y, laser.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00f0ff';
+        ctx.fill();
+
+        if (laser.y < 0) lasers.splice(index, 1);
+    });
+
+    // Update & Draw Enemies
+    enemies.forEach((enemy, eIdx) => {
+        enemy.y += enemy.speed;
+
+        // Draw Enemy Node
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
+        ctx.fillStyle = enemy.color;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+
+        // Check Collision with Lasers
+        lasers.forEach((laser, lIdx) => {
+            const dist = Math.hypot(enemy.x - laser.x, enemy.y - laser.y);
+            if (dist < enemy.size + laser.radius) {
+                enemy.hp--;
+                lasers.splice(lIdx, 1);
+                if (enemy.hp <= 0) {
+                    createExplosion(enemy.x, enemy.y, enemy.color);
+                    playSound(400, 'triangle', 0.15);
+                    score += enemy.points;
+                    enemies.splice(eIdx, 1);
+                }
+            }
+        });
+
+        // Reach Network Base (Bottom)
+        if (enemy.y > canvas.height) {
+            hp -= 15;
+            playSound(150, 'sawtooth', 0.3);
+            enemies.splice(eIdx, 1);
+            if (hp <= 0) gameOver();
+        }
+    });
+
+    // Update Particles
+    particles.forEach((p, idx) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 4, 4);
+        if (p.life <= 0) particles.splice(idx, 1);
+    });
+
+    // Update UI Elements
+    document.getElementById('hp-bar').style.width = Math.max(0, hp) + '%';
+    document.getElementById('score-text').innerText = String(score).padStart(4, '0');
+
+    requestAnimationFrame(update);
+}
+
+// --- GAME CONTROL FUNCTIONS ---
+function startGame() {
+    document.getElementById('start-screen').style.display = 'none';
+    audioCtx.resume();
+    camera.start();
+    gameRunning = true;
+    score = 0;
+    hp = 100;
+    enemies = [];
+    spawnEnemy();
+    requestAnimationFrame(update);
+}
+
+function gameOver() {
+    gameRunning = false;
+    document.getElementById('final-score').innerText = 'Final Score: ' + score;
+    document.getElementById('game-over-screen').style.display = 'flex';
+}
+
+function restartGame() {
+    document.getElementById('game-over-screen').style.display = 'none';
+    gameRunning = true;
+    score = 0;
+    hp = 100;
+    enemies = [];
+    spawnEnemy();
+}
+</script>
+</body>
+</html>
